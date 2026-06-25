@@ -208,8 +208,11 @@ jobs:
         env:
           # BACKEND_URL → substituído no web.config (proxy reverso) e usado pelo set-backend-url.
           BACKEND_URL: ${{ vars.BACKEND_URL }}
-          # VITE_API_URL → embutido no bundle JS (cliente chama a API .NET legada).
-          VITE_API_URL: ${{ vars.BACKEND_URL }}/api
+          # VITE_API_URL → caminho RELATIVO same-origin (/api). O browser chama /api e o
+          # web.config (BACKEND_URL acima) faz o proxy server-side até o backend PRIVADO
+          # via VNet. NÃO usar URL absoluta do backend: ele tem publicNetworkAccess=Disabled
+          # e o navegador não o alcança direto (provado empiricamente: Failed to fetch).
+          VITE_API_URL: /api
           # VITE_FUNCTION_V2_URL → URL raiz da Function; presença = compra v2 async (Oitavas).
           VITE_FUNCTION_V2_URL: ${{ vars.FUNCTION_V2_URL }}
         run: npm run build
