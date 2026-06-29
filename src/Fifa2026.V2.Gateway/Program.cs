@@ -33,6 +33,14 @@ const string EntraOidHeader = "X-Entra-OID";            // Story 2.3 AC-7 / ADE-
 const string OidClaim = "oid";
 const string OidClaimUri = "http://schemas.microsoft.com/identity/claims/objectidentifier";
 
+// Quartas / "admin 100% workforce" — header de shared secret e id do cluster v1.
+// O gateway prova ao backend Node/Express v1 que a request administrativa passou pelo
+// guardião (e não é spoof). Lido de Gateway:AdminSharedSecret (App Setting
+// Gateway__AdminSharedSecret; vazio no repo = injeção desligada, igual ao backend).
+const string GatewayKeyHeader = "X-Gateway-Key";
+const string BackendV1ClusterId = "backend-v1";
+var adminSharedSecret = builder.Configuration["Gateway:AdminSharedSecret"];
+
 // -----------------------------------------------------------------------------
 // YARP reverse proxy (ADE-004 Inv 1 e 2): rotas/clusters do appsettings.json +
 // transforms programáticos (X-Correlation-ID, que exige geração de GUID novo).
@@ -50,6 +58,9 @@ builder.Services
     // (AC-3/AC-5). O gateway permanece o NÓ ZERO: injeta X-Correlation-ID nas requests
     // ao FlowEvents também (mesmo transform global de borda).
     .AddConfigFilter<FlowEventsDestinationConfigFilter>()
+    // Quartas / "admin 100% workforce" — injeta a URL real do backend Node/Express v1
+    // no cluster backend-v1 (rotas /admin/* proxiadas com a policy AdminOnly).
+    .AddConfigFilter<BackendV1DestinationConfigFilter>()
     .AddTransforms(transformBuilderContext =>
     {
         // AC-8 / ADE-000 Inv 5 — injeta X-Correlation-ID (novo GUID se ausente) em
@@ -103,25 +114,71 @@ builder.Services
             // oid é PII de identidade; nunca aparece em log de aplicação).
             return ValueTask.CompletedTask;
         });
+
+        // Quartas / "admin 100% workforce" — injeta X-Gateway-Key APENAS nas rotas do
+        // cluster backend-v1 (/admin/*). O escopo é decidido em tempo de CONFIG: o
+        // callback de transforms roda por rota, então só ANEXAMOS o transform quando a
+        // rota aponta pro backend-v1. Assim o segredo NUNCA vaza para outros clusters
+        // (functions-f1, mcp-server, flow-events) — nem é avaliado por request.
+        if (string.Equals(
+                transformBuilderContext.Cluster?.ClusterId,
+                BackendV1ClusterId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            transformBuilderContext.AddRequestTransform(transformContext =>
+            {
+                // Anti-spoofing (igual ao X-Entra-OID): SEMPRE descarta qualquer
+                // X-Gateway-Key vindo do cliente antes de injetar o valor real.
+                transformContext.ProxyRequest.Headers.Remove(GatewayKeyHeader);
+
+                // Só injeta quando o segredo está configurado (vazio = injeção desligada,
+                // backend cai no fluxo legado v1 — paridade com GATEWAY_SHARED_SECRET vazio).
+                if (!string.IsNullOrEmpty(adminSharedSecret))
+                {
+                    transformContext.ProxyRequest.Headers.TryAddWithoutValidation(
+                        GatewayKeyHeader, adminSharedSecret);
+                }
+
+                return ValueTask.CompletedTask;
+            });
+        }
     });
 
 // -----------------------------------------------------------------------------
 // AC-5 — Rate limiting em código (paridade com APIM rate-limit-by-key).
-// Fixed window: 5 requisições/min por IP. 6ª chamada em < 1min → HTTP 429.
+// Fixed window por IP. UMA única policy "fixed" (aplicada em todas as rotas do proxy),
+// mas o LIMITE é sensível ao PATH:
+//   - rotas de cliente (ex.: /purchase): 5 req/min por IP (comportamento original — AC-5).
+//   - rotas admin (/admin/*): 60 req/min por IP.
+//
+// DECISÃO (Quartas / "admin 100% workforce"): o Dashboard dispara várias chamadas
+// (stats + sales, recarregamentos, paginação) e estouraria o limite apertado de 5/min
+// (HTTP 429). Em vez de um 2º policy + per-route config no YARP (que duplicaria metadata
+// de rate-limit junto à blanket RequireRateLimiting e tornaria a resolução ambígua),
+// mantemos UMA policy com PARTIÇÕES SEPARADAS por path: "admin:{ip}" (60/min) e "{ip}"
+// (5/min). Os contadores não se misturam, a rota /purchase continua 5/min (teste verde)
+// e as rotas admin ganham folga sem afrouxar o resto do gateway.
 // -----------------------------------------------------------------------------
+const int ClientPermitLimit = 5;    // AC-5 original (rotas de cliente).
+const int AdminPermitLimit = 60;    // rotas /admin/* (Dashboard faz N chamadas).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(RateLimiterPolicy, httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var isAdmin = httpContext.Request.Path.StartsWithSegments("/admin");
+        return RateLimitPartition.GetFixedWindowLimiter(
+            // Partição namespaceada: admin e cliente nunca compartilham contador.
+            partitionKey: isAdmin ? $"admin:{ip}" : ip,
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 5,
+                PermitLimit = isAdmin ? AdminPermitLimit : ClientPermitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
-            }));
+            });
+    });
 });
 
 // -----------------------------------------------------------------------------

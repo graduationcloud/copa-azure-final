@@ -13,6 +13,7 @@
 // =============================================================================
 
 import { getAdminAccessToken } from '@/lib/authAdmin';
+import type { Sale, Pagination, AdminStats } from '@/lib/api';
 
 const GATEWAY_V2_URL = import.meta.env.VITE_GATEWAY_V2_URL ?? '';
 
@@ -29,17 +30,18 @@ export interface AdminPingResponse {
 }
 
 /**
- * GET /admin/ping no gateway com Bearer workforce. Demonstra a separação dos dois
- * mundos no próprio gateway (AdminOnly). Sem token workforce → erro local antes da call.
+ * GET autenticado ao gateway com Bearer WORKFORCE. Centraliza a obtenção do token
+ * admin (MSAL workforce), o tratamento de 401/403 (didático nas Quartas) e os erros de
+ * conexão. NÃO usa o token v1 do localStorage — só o token workforce do gateway.
  */
-export async function adminPing(): Promise<AdminApiResult<AdminPingResponse>> {
+async function adminGet<T>(path: string): Promise<AdminApiResult<T>> {
   const token = await getAdminAccessToken();
   if (!token) {
     return { error: 'Faça o login administrativo (Entra workforce) antes de chamar /admin.' };
   }
 
   try {
-    const response = await fetch(`${GATEWAY_V2_URL}/admin/ping`, {
+    const response = await fetch(`${GATEWAY_V2_URL}${path}`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -55,10 +57,59 @@ export async function adminPing(): Promise<AdminApiResult<AdminPingResponse>> {
       return { error: message, status: response.status };
     }
 
-    const data = (await response.json()) as AdminPingResponse;
+    const data = (await response.json()) as T;
     return { data, status: response.status };
   } catch (error) {
     console.error('API admin (gateway) error:', error);
     return { error: 'Erro de conexão com o gateway (rota admin).' };
   }
+}
+
+/**
+ * GET /admin/ping no gateway com Bearer workforce. Demonstra a separação dos dois
+ * mundos no próprio gateway (AdminOnly). Sem token workforce → erro local antes da call.
+ */
+export function adminPing(): Promise<AdminApiResult<AdminPingResponse>> {
+  return adminGet<AdminPingResponse>('/admin/ping');
+}
+
+/**
+ * GET /admin/stats — estatísticas do dashboard, via gateway (policy AdminOnly).
+ * Mesma forma de resposta de api.getAdminStats() (`{ stats }`), mas com identidade
+ * WORKFORCE em vez do JWT v1.
+ */
+export function getAdminStats(): Promise<AdminApiResult<{ stats: AdminStats }>> {
+  return adminGet<{ stats: AdminStats }>('/admin/stats');
+}
+
+/**
+ * GET /admin/sales — lista paginada de vendas, via gateway (policy AdminOnly). Os
+ * query params seguem o backend v1 (page, pageSize, status, search, start_date,
+ * end_date). Valores undefined/null/'' são omitidos.
+ */
+export function getSales(params?: {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  search?: string;
+  start_date?: string;
+  end_date?: string;
+}): Promise<AdminApiResult<{ sales: Sale[]; pagination?: Pagination }>> {
+  const cleanParams: Record<string, string> = {};
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') cleanParams[k] = String(v);
+    });
+  }
+  const q = Object.keys(cleanParams).length > 0
+    ? '?' + new URLSearchParams(cleanParams).toString()
+    : '';
+  return adminGet<{ sales: Sale[]; pagination?: Pagination }>(`/admin/sales${q}`);
+}
+
+/**
+ * GET /admin/sales/:id — detalhe de uma venda, via gateway (policy AdminOnly).
+ */
+export function getSale(id: number): Promise<AdminApiResult<{ sale: Sale }>> {
+  return adminGet<{ sale: Sale }>(`/admin/sales/${id}`);
 }

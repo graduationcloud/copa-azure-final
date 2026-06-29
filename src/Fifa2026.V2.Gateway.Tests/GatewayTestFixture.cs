@@ -27,6 +27,9 @@ public sealed class GatewayTestFixture : WebApplicationFactory<Program>
 {
     public WireMockServer Backend { get; }
 
+    /// <summary>Shared secret de teste injetado como X-Gateway-Key nas rotas /admin/*.</summary>
+    public const string AdminSharedSecret = "test-shared-secret-123";
+
     public GatewayTestFixture()
     {
         Backend = WireMockServer.Start();
@@ -39,6 +42,11 @@ public sealed class GatewayTestFixture : WebApplicationFactory<Program>
         // a config fail-closed dos DOIS mundos chegue antes da checagem de startup.
         builder.UseSetting("FunctionAppF1Url", Backend.Url);
         builder.UseSetting("Gateway:FrontendOrigin", "https://fifa2026-web.azurewebsites.net");
+        // Quartas / "admin 100% workforce" — o cluster backend-v1 aponta pro MESMO
+        // WireMock (que também serve /api/admin/*). O shared secret de teste é injetado
+        // como X-Gateway-Key nas rotas /admin/* (AdminProxyTests valida a injeção).
+        builder.UseSetting("BackendV1Url", Backend.Url);
+        builder.UseSetting("Gateway:AdminSharedSecret", AdminSharedSecret);
         // CLIENTE (CIAM)
         builder.UseSetting("Jwt:CiamTenantId", TestTokenFactory.CiamTenantId);
         builder.UseSetting("Jwt:CiamClientId", TestTokenFactory.CiamClientId);
