@@ -10,7 +10,8 @@
 const FLOW_BASE = import.meta.env.VITE_FLOW_EVENTS_BASE_URL ?? '';
 
 /**
- * Os 6 tipos de evento = os 6 nós do diagrama, na ordem REAL do fluxo.
+ * Os 5 tipos de evento = os 5 nós do diagrama, na ordem REAL do fluxo (ADE-008 Inv 5 —
+ * o nó do n8n foi removido; a notificação pós-compra é inline no nó Consumer).
  * NÓ ZERO = GATEWAY_YARP_RECEIVED (nunca APIM). Espelha FlowEventType.cs do backend.
  */
 export type FlowEventType =
@@ -18,13 +19,12 @@ export type FlowEventType =
   | 'FUNCTION_ENTRY_PROCESSED'
   | 'SERVICE_BUS_PUBLISHED'
   | 'FUNCTION_CONSUMER_DONE'
-  | 'N8N_WEBHOOK_TRIGGERED'
   | 'SQL_INSERTED';
 
 export interface FlowEvent {
   correlationId: string;
   eventType: FlowEventType;
-  /** Índice ordinal do nó (0..5) — posição na animação da bolinha. */
+  /** Índice ordinal do nó (0..4) — posição na animação da bolinha. */
   nodeIndex: number;
   timestamp: string;
   durationMs?: number | null;

@@ -31,14 +31,9 @@ var host = new HostBuilder()
         // GET /api/v2/me (unificação base v1 ↔ CIAM). Mesmo padrão Dapper + SqlClient.
         services.AddSingleton<IUserRepository, UserRepository>();
 
-        // Story 2.4 (F4) — webhook fire-and-forget ao n8n após gravar a compra.
-        // Typed HttpClient via IHttpClientFactory (gestão correta de sockets/pooling).
-        // O timeout efetivo (5s) é controlado pelo próprio notifier via CancellationToken
-        // encadeado; mantemos o HttpClient.Timeout como guarda superior conservador.
-        services.AddHttpClient<IN8nWebhookNotifier, N8nWebhookNotifier>(client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(10);
-        });
+        // Story 3.1 (ADE-008 Inv 3) — a notificação pós-compra agora é INLINE no consumer
+        // (log estruturado correlacionado), sem orquestração externa. Não há mais webhook/
+        // HttpClient de saída nas Functions — o registro do notifier n8n foi removido.
     })
     .ConfigureLogging(logging =>
     {

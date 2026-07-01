@@ -8,9 +8,11 @@ using Fifa2026.V2.McpServer.Tools;
 //
 // Expõe 7 tools MCP read-only de consulta (consultar_disponibilidade, verificar_ingresso,
 // consultar_bracket, consultar_partidas, consultar_classificacao, consultar_time,
-// consultar_estadio — classe FifaTicketTools) + 1 tool de ação (criar_alerta_ingresso,
-// Fase B — classe FifaActionTools) sobre o SQL do FIFA 2026 Tickets, via o SDK C# oficial
-// pinado em 1.4.0 EXATO (ADE-002 Inv 1). O endpoint /mcp é Streamable HTTP
+// consultar_estadio — classe FifaTicketTools), TODAS ReadOnly=true, sobre o SQL do FIFA
+// 2026 Tickets, via o SDK C# oficial pinado em 1.4.0 EXATO (ADE-002 Inv 1). A "mão" de
+// ação (criar_alerta_ingresso) foi REMOVIDA na Story 3.1 (ADE-008): o chatbot é só
+// "sentidos" e a regra de ouro vale por construção (zero superfície de escrita). O
+// endpoint /mcp é Streamable HTTP
 // (MapMcp() do ModelContextProtocol.AspNetCore — ADE-002 Inv 2); o framing
 // JSON-RPC 2.0 e o dispatch tools/list / tools/call são do SDK (AC-15: não
 // reimplementamos o protocolo à mão).
@@ -43,12 +45,6 @@ builder.Services.AddScoped<EntraOidContext>();
 
 // HttpClient para o proxy de LLM (injeta a key server-side; ver LlmProxyEndpoints).
 builder.Services.AddHttpClient("llm", client => client.Timeout = TimeSpan.FromSeconds(30));
-
-// Story 2.9 (Fase B) — despacho fire-and-forget do alerta ao n8n (workflow
-// chat-alert-ingresso). Named client próprio com timeout de 5s (padrão F4);
-// URL via App Setting N8N_ALERT_WEBHOOK_URL (distinto de N8N_WEBHOOK_URL de F4).
-builder.Services.AddHttpClient(AlertWebhookNotifier.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
-builder.Services.AddScoped<IAlertWebhookNotifier, AlertWebhookNotifier>();
 
 // ADE-002 Inv 1/2 — registra o MCP server com transporte HTTP (Streamable HTTP)
 // e descobre as tools marcadas com [McpServerToolType]/[McpServerTool] no assembly.

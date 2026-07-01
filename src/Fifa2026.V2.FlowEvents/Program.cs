@@ -10,8 +10,8 @@ using Fifa2026.V2.FlowEvents.Hubs;
 //   1. Consulta o App Insights por correlationId via SDK Azure.Monitor.Query (AC-3).
 //   2. Expõe o Hub SignalR FlowHub (Service Mode: Default — Hub clássico, AC-2/AC-3)
 //      ligado ao Azure SignalR Service via AddAzureSignalR.
-//   3. Empurra os 6 eventos do fluxo (GATEWAY_YARP_RECEIVED → SQL_INSERTED) para o
-//      grupo correlation-<id> (AC-6).
+//   3. Empurra os 5 eventos do fluxo (GATEWAY_YARP_RECEIVED → SQL_INSERTED) para o
+//      grupo correlation-<id> (AC-6). ADE-008 Inv 5: o nó do n8n saiu (6 → 5 nós).
 //
 // É um Function-equivalente de longa duração: SignalR Default mode exige um Hub
 // clássico hospedado (incompatível com o runtime serverless do Functions), por isso

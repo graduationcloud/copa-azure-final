@@ -39,7 +39,7 @@ public sealed class FlowEndpointsTests : IClassFixture<FlowEndpointsTests.FlowAp
     }
 
     [Fact]
-    public async Task Timeline_returns_six_nodes_with_gateway_yarp_as_node_zero()
+    public async Task Timeline_returns_five_nodes_with_gateway_yarp_as_node_zero()
     {
         var client = _factory.CreateClient();
         var id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -47,11 +47,12 @@ public sealed class FlowEndpointsTests : IClassFixture<FlowEndpointsTests.FlowAp
         var timeline = await client.GetFromJsonAsync<List<FlowEvent>>($"/api/flow/{id}");
 
         Assert.NotNull(timeline);
-        Assert.Equal(6, timeline!.Count);
+        // ADE-008 Inv 5 — 5 nós (o nó do n8n saiu). SQL_INSERTED é o último (índice 4).
+        Assert.Equal(5, timeline!.Count);
         // AC-13 — o primeiro nó é o Gateway YARP (nó zero), NUNCA APIM.
         Assert.Equal(FlowEventType.GATEWAY_YARP_RECEIVED, timeline[0].EventType);
         Assert.Equal(0, timeline[0].NodeIndex);
-        Assert.Equal(FlowEventType.SQL_INSERTED, timeline[5].EventType);
+        Assert.Equal(FlowEventType.SQL_INSERTED, timeline[4].EventType);
     }
 
     [Fact]
@@ -82,10 +83,10 @@ public sealed class FlowEndpointsTests : IClassFixture<FlowEndpointsTests.FlowAp
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(6, body.GetProperty("pushed").GetInt32());
+        Assert.Equal(5, body.GetProperty("pushed").GetInt32());
 
-        // Cada um dos 6 eventos foi empurrado via SignalR, em ordem de nó.
-        Assert.Equal(6, _factory.Publisher.Published.Count);
+        // Cada um dos 5 eventos foi empurrado via SignalR, em ordem de nó (ADE-008 Inv 5).
+        Assert.Equal(5, _factory.Publisher.Published.Count);
         Assert.Equal(FlowEventType.GATEWAY_YARP_RECEIVED, _factory.Publisher.Published[0].EventType);
     }
 
@@ -114,7 +115,7 @@ public sealed class FlowEndpointsTests : IClassFixture<FlowEndpointsTests.FlowAp
     {
         public Task<IReadOnlyList<FlowEvent>> GetTimelineAsync(string correlationId, CancellationToken cancellationToken = default)
         {
-            // Os 6 hops REAIS em ordem (Gateway YARP → SQL).
+            // Os 5 hops REAIS em ordem (Gateway YARP → SQL) — ADE-008 Inv 5 (sem n8n).
             var timeline = Enum.GetValues<FlowEventType>()
                 .OrderBy(t => (int)t)
                 .Select(t => new FlowEvent

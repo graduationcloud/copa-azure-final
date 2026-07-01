@@ -52,7 +52,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Job 1 — McpServer .NET (7 tools MCP read-only + 1 de ação via SDK 1.4.0) + proxy LLM server-side.
+  # Job 1 — McpServer .NET (7 tools MCP read-only via SDK 1.4.0) + proxy LLM server-side.
   # ---------------------------------------------------------------------------
   deploy-mcp-server:
     runs-on: ubuntu-latest
