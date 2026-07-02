@@ -24,10 +24,39 @@ A decisão de arquitetura (plano §9.4) é **tirar a topologia complexa do reló
 | Camada | Recurso | Fonte |
 |---|---|---|
 | **Rede** | VNet + **CAE VNet-integrado** (imutável) + **Private Endpoint do SQL** (`publicNetworkAccess: Disabled`) + DNS privado | ADE-009 Inv 3 (T2) |
-| **Cofre + identidade** | Key Vault `kv-dev-tk-cin-001` **[já existe]** · **UA-MI compartilhada só-leitura** (`id-fifa2026-kv-reader` `[nome sugerido]`) · **system-assigned por-app** (SQL) | ADE-010 D1/D2 |
+| **Cofre + identidade** | Key Vault `kv-dev-tk-cin-001` **[já existe]** _(HML de validação — na turma: `kv-<sufixo>`; ver §Nomenclatura)_ · **UA-MI compartilhada só-leitura** (`id-fifa2026-kv-reader` `[nome sugerido]`) · **system-assigned por-app** (SQL) | ADE-010 D1/D2 |
 | **Segredos semeados** | `gateway-admin-shared-secret` · `gemini-api-key` · `sql-connection-string` · `azure-signalr-connection-string` (execução única, offline) | ADE-010 D3 |
+| **Container Apps (wired ao cofre)** | `ca-mcp-<sufixo>` · `ca-gateway-<sufixo>` · `ca-flow-<sufixo>` **criados** lendo os app-secrets do Key Vault via KV reference + MI (revisão `Running`) — pré-req do Doctor **item 7**; o workflow só troca a imagem (AC-9) | Bloco 3 passo 5 / ADE-010 |
+| **Identidade do frontend** | 5 `VITE_*` de identidade (`VITE_CIAM_AUTHORITY`/`CLIENT_ID`, `VITE_ADMIN_TENANT_ID`/`CLIENT_ID`, `VITE_ADMIN_SCOPE`) semeadas no **App Settings** do `app-frontend-<sufixo>` — **não-secreto**, lidas pelo workflow (Bloco 4) | AC-6 / [AUTO-DECISION] |
 
-O que fica para a aula (NÃO faça aqui): apontar as App Settings dos apps para as KV references, subir as imagens, fixar `VITE_*` e CORS no frontend — isso é o `final-portal-guide.md` / `lab-grande-final.yml`.
+O que fica para a aula (NÃO faça aqui): **subir as imagens de código** (`az containerapp update --image`) + o **CORS** e as `VITE_*` **que carregam o FQDN do gateway** (`VITE_GATEWAY_V2_URL`/`VITE_LLM_PROXY_URL`/`VITE_FLOW_EVENTS_BASE_URL`) — essas o `lab-grande-final.yml` resolve **in-run** via `az ... --query` (não são fixadas à mão). **O que é pré-provisionamento (você faz aqui):** (a) as **5 `VITE_*` de identidade** (`VITE_CIAM_AUTHORITY`/`VITE_CIAM_CLIENT_ID`/`VITE_ADMIN_TENANT_ID`/`VITE_ADMIN_CLIENT_ID`/`VITE_ADMIN_SCOPE`) — **não** dependem do FQDN e o workflow as **lê** dos App Settings do frontend (AC-6), **Bloco 4**; (b) **o wiring das KV-references dos Container Apps** — os apps (McpServer/gateway/FlowEvents) **nascem** lendo os app-secrets do cofre via Managed Identity, **Bloco 3 passo 5**. Ambos são **pré-requisito do Doctor `acao=check`** (itens 7 e 8) — se ficarem para a aula, o pré-flight dá FALSO FAIL.
+
+---
+
+## Nomenclatura — o ambiente HML de validação vs. a convenção `<prefixo>-<sufixo>` da turma
+
+> **Contrato oficial (AC-4):** na turma real, **todo** recurso é nomeado pela convenção **`<prefixo>-<sufixo>`** — a MESMA que o workflow `lab-grande-final.yml` deriva do único campo `sufixo` do aluno (`jq` → `$GITHUB_ENV`) e que o `README.md` do Template Repo documenta (`docs/entrega/fifa2026-final-lab/README.md`). É essa convenção, e só ela, que faz o "1 campo" funcionar: se você provisionar com nomes fora dela, o `acao=check` (Doctor) e o `acao=tudo` **não encontram** os recursos.
+
+Os nomes **concretos** que aparecem neste runbook (`kv-dev-tk-cin-001`, `id-fifa2026-kv-reader`) são do **ambiente HML de validação do instrutor** — onde este runbook foi verificado nas sessões de preparação. São **exemplos reais**, **não** a nomenclatura da turma. Ao provisionar para os alunos, **substitua** pelos nomes da convenção, parametrizados pelo `sufixo` de cada aluno:
+
+| Recurso | No HML de validação (este runbook) | Na turma (convenção `<prefixo>-<sufixo>`) | Workflow deriva? |
+|---|---|---|---|
+| Resource Group | `rg-hml-tik-cin-001` | `rg-<sufixo>` | Sim (`RG`) |
+| Key Vault | `kv-dev-tk-cin-001` | `kv-<sufixo>` | Sim (`KEYVAULT`) |
+| UA-MI de leitura do KV | `id-fifa2026-kv-reader` `[nome sugerido]` | **nome livre** — o workflow **não** deriva a MI; confirme 1 nome por turma (compartilhada) ou por aluno `[confirmar no Portal]` | Não |
+| ACR | (instância HML equivalente) | `cr<sufixo>` / `cr<sufixo>.azurecr.io` | Sim (`ACR_NAME`) |
+| Container Apps Environment | (instância HML equivalente) | `cae-<sufixo>` | Sim (`CAE_NAME`) |
+| Gateway (Container App) | (instância HML equivalente) | `ca-gateway-<sufixo>` | Sim (`GATEWAY_APP`) |
+| McpServer (Container App) | (instância HML equivalente) | `ca-mcp-<sufixo>` | Sim (`MCP_APP`) |
+| FlowEvents (Container App) | (instância HML equivalente) | `ca-flow-<sufixo>` | Sim (`FLOW_APP`) |
+| Frontend (Web App) | (instância HML equivalente) | `app-frontend-<sufixo>` | Sim (`FRONTEND_APP`) |
+| Backend v1 (Web App) | (instância HML equivalente) | `app-backend-<sufixo>` | Sim (`BACKEND_APP`) |
+| Function F1 | (instância HML equivalente) | `func-f1-<sufixo>` | Sim (`FUNCTION_APP`) |
+| SQL Server | (instância HML equivalente) | `sql-<sufixo>` | Sim (`SQL_SERVER`) |
+
+> **Por que a UA-MI é a exceção:** o workflow **nunca** referencia a MI pelo nome — o Doctor (`acao=check`) a valida **indiretamente**, pelo secret com `keyVaultUrl` resolvendo na revisão `Running` do McpServer. Então o nome da MI **não** precisa seguir a convenção; mantém-se `[nome sugerido]`. Todos os **demais** recursos **precisam** seguir `<prefixo>-<sufixo>`, senão o workflow não os acha.
+
+Assim **runbook e workflow contam a MESMA história de nomenclatura**: os nomes HML são o laboratório de validação do instrutor; a convenção `<prefixo>-<sufixo>` é o contrato de entrega da turma.
 
 ---
 
@@ -69,7 +98,7 @@ A moral: **rede fechada é o alvo mais forte, mas tem custo e imutabilidade.** V
 
 Esta é a parte que **só o instrutor** faz, e **só uma vez** — porque envolve **colocar valores de segredo** no cofre.
 
-1. **Acesso de dados a você mesmo (gotcha do KV-RBAC):** o KV `kv-dev-tk-cin-001` **[já existe]** com RBAC. Ser *Owner* do recurso **não** dá acesso ao data-plane — dê a si mesmo **`Key Vault Secrets Officer`** no cofre, senão o blade **Secrets** nega **403** (ADE-010 D2, "gotcha #1").
+1. **Acesso de dados a você mesmo (gotcha do KV-RBAC):** o KV `kv-dev-tk-cin-001` **[já existe]** _(nome do HML de validação — na turma, `kv-<sufixo>`; ver §Nomenclatura)_ com RBAC. Ser *Owner* do recurso **não** dá acesso ao data-plane — dê a si mesmo **`Key Vault Secrets Officer`** no cofre, senão o blade **Secrets** nega **403** (ADE-010 D2, "gotcha #1").
 2. **A identidade de leitura compartilhada:** crie a **User-Assigned MI** `id-fifa2026-kv-reader` `[nome sugerido; confirme]` e conceda-lhe **`Key Vault Secrets User`** (só lê o valor) com **escopo = o cofre**. **Espere a propagação de RBAC** (minutos) e confirme antes de seguir. Por que **compartilhada** e não uma por app: **um** grant na vida toda, e ela **sobrevive** quando você recria McpServer/FlowEvents à mão (uma system-assigned morre com o app → novo objectId → regrant). Ler segredo é uniforme → granularidade por-app não compra segurança aqui (ADE-010 D1).
 3. **As identidades do SQL (menor-privilégio):** para o SQL via MI (showcase/Fase 2), cada app usa a **própria system-assigned** — McpServer `db_datareader`-only, Functions writer+reader. **Não** use a UA compartilhada no SQL (colapsaria os dois no mesmo contained user e quebraria a regra de ouro do McpServer). Ligue as system-assigned dos apps `[confirmar nomes no Portal]`.
 4. **Semeie os segredos no cofre (o passo único-offline):** crie, com **valor byte-a-byte** do valor atual, os secrets:
@@ -78,7 +107,11 @@ Esta é a parte que **só o instrutor** faz, e **só uma vez** — porque envolv
    - `sql-connection-string`
    - `azure-signalr-connection-string`
 
-   **Por que agora, offline:** valores de segredo **nunca** vão para o GitHub, arquivo ou log — só o instrutor os toca, no Portal/`az`, fora do relógio da aula. Ninguém referencia esses secrets ainda → **risco zero** nesta etapa (a fase de apontar as App Settings para as KV references é da aula/guia).
+   **Por que agora, offline:** valores de segredo **nunca** vão para o GitHub, arquivo ou log — só o instrutor os toca, no Portal/`az`, fora do relógio da aula. No **momento da semeadura** ninguém referencia esses secrets ainda → **risco zero** neste passo; o wiring dos apps para as KV references vem **logo a seguir**, ainda no pré-provisionamento (**passo 5**).
+
+5. **Crie os Container Apps já WIRED às KV references (pré-requisito do Doctor item 7):** os apps de deploy — McpServer (`ca-mcp-<sufixo>`), gateway (`ca-gateway-<sufixo>`) e FlowEvents (`ca-flow-<sufixo>`) — têm de **pré-existir** (o `lab-grande-final.yml` faz **zero `az create`**, AC-9: só troca a imagem com `az containerapp update --image`). Portanto **você os cria aqui**, cada um com seus **app-secrets lidos do Key Vault via KV reference + a UA-MI** do passo 2 (ex.: `ca-mcp` → `sql-connection-string`/`gemini-api-key`; `ca-gateway`/Functions → `gateway-admin-shared-secret`). O passo-a-passo detalhado de criar cada app lendo do cofre via MI é o [`final-portal-guide.md`](./final-portal-guide.md) (as 14 fases) — **não o repita aqui**, apenas garanta o resultado. **Por que é pré-provisionamento e não aula:** o Doctor `acao=check` (item 7) exige, no pré-flight, que o `ca-mcp-<sufixo>` já tenha um secret com `keyVaultUrl` resolvendo numa revisão `Running` — um app montado exatamente conforme este runbook **passa** o item 7. Se o wiring ficasse para a aula, o pré-flight daria **FALSO FAIL**.
+
+   > **`[confirmar]` — imagem seed:** criar um Container App exige uma **imagem inicial**, e o Doctor item 7 exige uma revisão **`Running` ANTES** de o aluno rodar qualquer `acao=... update --image`. Use a imagem que o `final-portal-guide.md` manda **buildar/apontar** para cada app (ou uma **imagem-placeholder funcional** que suba e responda health) — o `acao=tudo` do aluno depois troca pela imagem do código dele. **Ponto a confirmar com o owner no provisionamento real** (não inventar nome/tag de imagem aqui).
 
 **Ganho estrutural que você já garante aqui:** o `gateway-admin-shared-secret` é **um** secret que os dois lados vão referenciar — quem **injeta** o `X-Gateway-Key` (gateway) e quem **valida** (Functions/McpServer). A igualdade fica **estrutural** desde a semeadura (ADE-010 D3).
 
@@ -90,7 +123,20 @@ Esta é a parte que **só o instrutor** faz, e **só uma vez** — porque envolv
 
 **Por que por último:** porque tudo isto **carrega o nome do gateway**. Fixar o `VITE_*` antes de a rede estar definitiva é assinar um cheque com um endereço que ainda pode mudar — e mudar o CAE depois **invalida o bundle** e força rebuild na frente da turma. Última camada = a que depende de nomes.
 
-**Portão final:** FQDN do gateway anotado e **estável**; nenhuma etapa posterior pode recriar o CAE/VNet. A partir daqui, o `VITE_*`/CORS pode ser fixado com segurança (na aula/guia).
+**As `VITE_*` de IDENTIDADE são a exceção — SEMEIE-as agora (não dependem do FQDN):** as 5 vars `VITE_CIAM_AUTHORITY`, `VITE_CIAM_CLIENT_ID`, `VITE_ADMIN_TENANT_ID`, `VITE_ADMIN_CLIENT_ID`, `VITE_ADMIN_SCOPE` derivam do **tenant CIAM + App Registrations** do aluno (criados nas Quartas), **não** do FQDN do gateway. O `lab-grande-final.yml` **lê essas 5 dos App Settings do frontend Web App** (`az webapp config appsettings list`, AC-6/[AUTO-DECISION]) e faz **fail-fast** se qualquer uma faltar — logo o App Settings do frontend é a **fonte-da-verdade** que este pré-provisionamento precisa deixar pronta. Semeie-as no frontend Web App `app-frontend-<sufixo>`:
+
+```bash
+az webapp config appsettings set -g rg-<sufixo> -n app-frontend-<sufixo> --settings \
+  VITE_CIAM_AUTHORITY='<authority CIAM do aluno>' \
+  VITE_CIAM_CLIENT_ID='<client id do SPA cliente>' \
+  VITE_ADMIN_TENANT_ID='<tenant id workforce>' \
+  VITE_ADMIN_CLIENT_ID='<client id admin>' \
+  VITE_ADMIN_SCOPE='<scope da API admin>' -o none
+```
+
+> **Não são segredo:** tenant IDs, client IDs e o scope são **identificadores públicos do OIDC** (o próprio bundle da SPA os embute em build-time por desenho) — App Settings é o lugar certo; **nada** vai para GitHub/log/Key Vault. As `VITE_*` de **URL** (que carregam o FQDN) continuam por último, resolvidas pelo workflow — nunca fixadas à mão aqui. `[confirmar no Portal]` os valores exatos de cada aluno (vêm da configuração CIAM/admin das Quartas).
+
+**Portão final:** FQDN do gateway anotado e **estável**; nenhuma etapa posterior pode recriar o CAE/VNet; **as 5 `VITE_*` de identidade semeadas** no App Settings do `app-frontend-<sufixo>` (o `acao=... frontend` do workflow vai lê-las). A partir daqui, o `VITE_*` de URL / CORS pode ser fixado com segurança (na aula/guia).
 
 ---
 
@@ -98,12 +144,14 @@ Esta é a parte que **só o instrutor** faz, e **só uma vez** — porque envolv
 
 - [ ] **VNet + CAE VNet-integrado** existem; CAE **não** será recriado; FQDN base anotado.
 - [ ] **Private Endpoint do SQL** ativo; SQL `publicNetworkAccess: Disabled`; **resolve por DNS privado de dentro** da VNet, recusa de fora.
-- [ ] **`Key Vault Secrets Officer`** em você; **UA-MI `id-fifa2026-kv-reader`** criada com **`Key Vault Secrets User`** no cofre (propagação confirmada); system-assigned dos apps ligadas.
-- [ ] **Secrets semeados** (`gateway-admin-shared-secret`, `gemini-api-key`, `sql-connection-string`, `azure-signalr-connection-string`), valor byte-a-byte; **ninguém referencia ainda**.
-- [ ] **FQDN estável** — nada mais recria a rede; `VITE_*`/CORS ficam para a aula.
+- [ ] **`Key Vault Secrets Officer`** em você; **UA-MI `id-fifa2026-kv-reader`** criada com **`Key Vault Secrets User`** no cofre (propagação confirmada); system-assigned dos apps ligadas. _(Nomes: convenção `<prefixo>-<sufixo>` na turma — KV = `kv-<sufixo>`; MI = nome livre; ver §Nomenclatura.)_
+- [ ] **Secrets semeados** (`gateway-admin-shared-secret`, `gemini-api-key`, `sql-connection-string`, `azure-signalr-connection-string`), valor byte-a-byte (referenciados pelos apps no passo 5).
+- [ ] **Container Apps criados e WIRED às KV references** (`ca-mcp-<sufixo>`/`ca-gateway-<sufixo>`/`ca-flow-<sufixo>` lendo app-secrets do cofre via MI, revisão `Running`) — pré-requisito do Doctor **item 7** (o workflow só troca a imagem, AC-9).
+- [ ] **5 `VITE_*` de identidade semeadas** no App Settings do `app-frontend-<sufixo>` (não-secreto) — pré-requisito do Doctor **item 8**; o `acao=frontend`/`tudo` do workflow as lê (fail-fast se faltar).
+- [ ] **FQDN estável** — nada mais recria a rede; as `VITE_*` de **URL** (FQDN) / CORS ficam para a aula.
 
 ## Handoff para a aula
 
-Na aula, o aluno valida a fundação com **`acao=check`** (o Doctor pré-flight do `lab-grande-final.yml`): ele confere, **read-only**, os 5 gotchas de deploy (RBAC do SP no RG do gateway, ACR nos Registries, `targetPort=8080`, probes na mesma porta, nome do segredo) **e** faz um **smoke de leitura de um secret via a MI** (sem expor o valor) — provando que o **cofre e a Managed Identity que você semeou aqui estão resolvendo**. Só com tudo **PASS** o aluno roda `acao=tudo`. É assim que o pré-provisionamento offline **encontra** o relógio da aula sem roubar o clímax.
+Na aula, o aluno valida a fundação com **`acao=check`** (o Doctor pré-flight do `lab-grande-final.yml`, **8 checks read-only**): os 5 gotchas de deploy (RBAC do SP no RG do gateway, ACR nos Registries, `targetPort=8080`, probes na mesma porta, nome do segredo) + a invariante de perímetro (item 6) + um **smoke de leitura de um secret via a MI** (item 7 — prova que o **cofre, a Managed Identity e o wiring das KV-references dos apps** que você deixou prontos no passo 5 estão resolvendo, revisão `Running`) + a **presença das 5 `VITE_*` de identidade** no App Settings do frontend (item 8 — o que você semeou no Bloco 4). Tudo **sem expor valores**. Só com tudo **PASS** o aluno roda `acao=tudo`. É assim que o pré-provisionamento offline **encontra** o relógio da aula sem roubar o clímax — e cada FALSO FAIL fica impossível porque itens 7/8 checam exatamente o que este runbook deixa pronto.
 
 > **Débito honesto:** o **draw.io de topologia completa** (a foto desta rede fechada + cofre + identidades) é a **Story 4.6** (ainda não feita) — por ora, este runbook é a descrição da topologia; o slide de arquitetura da aula é a foto conceitual.

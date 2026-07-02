@@ -23,7 +23,7 @@ Story: [`docs/stories/4.5.story.md`](../../stories/4.5.story.md) — Entrega/Cap
 
 1. **"Use this template"** → cria um repositório **próprio** (não fork — mata a classe de bugs de merge). AC-1.
 2. Edita **1 linha** em `lab.config.json`: o `sufixo`. AC-4.
-3. Configura **1 secret**: `AZURE_CREDENTIALS`. AC-7.
+3. Configura **1 secret**: `AZURE_CREDENTIALS`. AC-7. **Diferente das Quartas:** você **não** cria um Service Principal próprio — **seu instrutor te entrega esse JSON** (o SP da turma, com acesso de leitura/deploy aos recursos já provisionados); **cole-o como está** em Settings → Secrets and variables → Actions → New repository secret.
 4. Roda **`acao=check`** (Doctor pré-flight, read-only) → confirma ambiente PASS. AC-12.
 5. Roda **`acao=tudo`** → build + deploy de código sobre a infra pré-provisionada. AC-8/9.
 
@@ -77,6 +77,7 @@ recurso (`az ... show/list/--query`) e imprime PASS/FAIL no job summary — **ne
 | 5 | segredo X-Gateway-Key | **presença do NOME** `Gateway__AdminSharedSecret` (gateway) + `GATEWAY_SHARED_SECRET` (backend) — nunca o valor |
 | 6 | invariante de perímetro (@architect) | `ingress.external` presente (ingress do CAE é a única borda — premissa do `ForwardLimit=1`) |
 | 7 | KV/MI smoke (Story 4.1) | McpServer tem secret(s) via `keyVaultUrl` **e** revisão ativa `Running` (a MI resolveu o KV ref) — só metadados, nunca o valor |
+| 8 | `VITE_*` de identidade no frontend (AC-6) | `app-frontend-<sufixo>` tem as 5 `VITE_*` (`VITE_CIAM_AUTHORITY`/`CLIENT_ID`, `VITE_ADMIN_TENANT_ID`/`CLIENT_ID`, `VITE_ADMIN_SCOPE`) semeadas pelo instrutor (runbook Bloco 4) — **presença do NOME**, nunca o valor. Sem isso, o `acao=tudo` quebra no build do frontend. |
 
 Falha o job (exit 1) se qualquer item FAIL → o aluno corrige antes de `acao=tudo`.
 
@@ -85,4 +86,40 @@ Falha o job (exit 1) se qualquer item FAIL → o aluno corrige antes de `acao=tu
 - **Task 1 (repo real):** criar `fifa2026-final-lab` na org TFTEC + habilitar "Template repository" + branch `lab-grande-final`. **Ação na org TFTEC — pendente de autorização do owner.**
 - **Task 5 (runbook browser-harness):** pré-provisionamento T2 + semeadura do Key Vault — **@analyst** (em paralelo), fora do escopo deste pacote.
 - **Task 6.1 (dry-run @po):** validação da UX "1 campo + 1 secret".
-- **Semeadura do conteúdo:** quando o repo real existir, copiar `lab.config.json` e `.github/workflows/lab-grande-final.yml` para a **raiz** dele (junto com o código-fonte da Final).
+- **Semeadura do conteúdo:** quando o repo real existir, copiar para a **raiz** dele (junto com o código-fonte da Final): (1) `lab.config.json`; (2) `.github/workflows/lab-grande-final.yml`; (3) um **`README.md` de raiz voltado ao aluno** — usar o texto da seção **"Conteúdo do README-raiz (aluno)"** abaixo (esta nota de staging NÃO vai para a raiz; é interna).
+
+## Conteúdo do README-raiz (aluno) — copiar para a raiz do repo real na Task 1
+
+> Este bloco é o **README que o aluno vê** ao abrir o repositório criado via "Use this template". Copie-o (sem esta linha-guia) para `README.md` na raiz do `fifa2026-final-lab`.
+
+---
+
+# Grande Final — FIFA 2026 Tickets (lab do aluno)
+
+Bem-vindo à **Grande Final**. Este é o **seu** repositório (criado via "Use this template" — não é um fork). Aqui você faz o deploy da Copa inteira sobre a sua infraestrutura Azure das Oitavas/Quartas, agora em **nível produção** (Managed Identity + Key Vault + rede fechada).
+
+## O que mudou desde as Quartas (a promessa: **15 variáveis + 5 secrets → 1 campo + 1 secret**)
+
+Nas Quartas você preenchia **15 GitHub Variables + 5 GitHub Secrets** à mão. Aqui você edita **1 linha** e configura **1 secret**:
+
+| Nas Quartas (o que você fazia à mão) | Aqui (Grande Final) |
+|---|---|
+| 7 nomes de recurso (`SQL_SERVER`, `RESOURCE_GROUP`, `ACR_LOGIN_SERVER`, `FRONTEND_APP_NAME`…) | **Derivados** do seu `sufixo` por convenção `<prefixo>-<sufixo>` |
+| 3 URLs (`GATEWAY_V2_URL`, `BACKEND_URL`, `FUNCTION_V2_URL`) | **Consultadas** ao Azure durante o deploy (`az … --query`) |
+| 5 vars de identidade (`VITE_CIAM_*`, `VITE_ADMIN_*`) | **Já configuradas** no seu ambiente pelo instrutor — lidas automaticamente |
+| `SQL_CONNECTION_STRING` (secret) | **Eliminado** — conexão via Managed Identity (sem senha) |
+| 2 publish profiles (secrets) | **Eliminados** — deploy autenticado pelo `AZURE_CREDENTIALS` |
+| `GATEWAY_SHARED_SECRET` + chaves de LLM (secrets) | **No Key Vault** — nunca no GitHub |
+| **= 15 vars + 5 secrets** | **= 1 campo (`sufixo`) + 1 secret (`AZURE_CREDENTIALS`)** |
+
+## Passo a passo (só web)
+
+1. **"Use this template"** já criou este repo pra você (é seu — pode editar à vontade).
+2. Edite **1 linha** em [`lab.config.json`](./lab.config.json): troque `"suasiniciais"` pelo **seu sufixo** (letras minúsculas + números, o mesmo das Quartas).
+3. Configure **1 secret** em *Settings → Secrets and variables → Actions*: `AZURE_CREDENTIALS`. **Seu instrutor te entrega esse JSON — cole como está, NÃO crie um Service Principal próprio.**
+4. Rode o workflow **`Lab Grande Final`** com **`acao=check`** (Doctor pré-flight, read-only). Só avance com **todos os itens PASS**.
+5. Rode de novo com **`acao=tudo`** — build + deploy da Final inteira. As URLs finais saem no resumo do job.
+
+> **Não crie nenhuma GitHub Variable, não baixe publish profile, não digite segredo de aplicação.** Se o `acao=check` falhar, a mensagem aponta exatamente o que ajustar (ou o que pedir ao instrutor).
+
+---

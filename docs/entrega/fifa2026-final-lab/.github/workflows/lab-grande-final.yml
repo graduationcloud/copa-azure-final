@@ -79,7 +79,10 @@ jobs:
             if [ ! -f lab.config.json ]; then
               echo "::error::lab.config.json ausente na raiz do repo. Edite o campo 'sufixo'."; exit 1
             fi
-            SUFIXO=$(jq -r '.sufixo // empty' lab.config.json)
+            # `2>/dev/null || true`: se lab.config.json estiver com JSON malformado, o jq sai != 0
+            # e o `set -e` mataria o step ANTES do erro amigável abaixo. Com o fallback, SUFIXO fica
+            # vazio e o guard `if [ -z "$SUFIXO" ]` emite a mensagem amigável (sempre sai).
+            SUFIXO=$(jq -r '.sufixo // empty' lab.config.json 2>/dev/null || true)
           fi
           if [ -z "$SUFIXO" ] || [ "$SUFIXO" = "null" ] || [ "$SUFIXO" = "suasiniciais" ]; then
             echo "::error::campo 'sufixo' não preenchido em lab.config.json (valor placeholder ou vazio)."; exit 1
@@ -113,11 +116,11 @@ jobs:
       # =========================================================
       # acao=check — DOCTOR PRÉ-FLIGHT (READ-ONLY) — AC-12.
       #   Consome o checklist da Story 4.4 (docs/runbooks/deploy-preflight-checklist.md):
-      #   5 gotchas + a invariante de perímetro (@architect) + smoke KV/MI.
+      #   8 checks: 5 gotchas + a invariante de perímetro (@architect) + smoke KV/MI + VITE_* de identidade.
       #   NENHUM az set/update/create — só az ... show/list/--query. Resultado no job summary.
       #   NÃO faz parte de `tudo` — o aluno roda check ANTES de tudo.
       # =========================================================
-      - name: '[check] Doctor pré-flight (READ-ONLY) — 5 gotchas + invariante + KV/MI'
+      - name: '[check] Doctor pré-flight (READ-ONLY) — 8 checks: 5 gotchas + invariante + KV/MI + VITE_*'
         if: ${{ inputs.acao == 'check' }}
         run: |
           # NÃO usar `set -e`: queremos coletar TODOS os itens, não abortar no 1º FAIL.
@@ -186,6 +189,20 @@ jobs:
           if [ -n "$KVREFS" ] && [ "$REV_STATE" = "Running" ]; then \
             item 7 "KV/MI: secret(s) via KV reference resolvido(s) (revisão Running)" 0; \
             else item 7 "KV/MI reference (Story 4.1)" 1 "kvrefs:${KVREFS:-nenhum} rev:${REV_STATE:-?}"; fi
+
+          # 8 — VITE_* de identidade presentes no App Settings do frontend (dependência do instrutor,
+          #     AC-6 / runbook Bloco 4). O bloco `frontend` LÊ essas 5 daqui (L~356) → um check "todos
+          #     PASS" sem elas ainda quebraria o `acao=tudo`. Confere só a PRESENÇA do NOME — NUNCA
+          #     ecoa valores (mantém o padrão do Doctor; e são identificadores OIDC públicos).
+          FE_SETTINGS=$(az webapp config appsettings list -n "$FRONTEND_APP" -g "$RG" \
+            --query "[].name" -o tsv 2>/dev/null || true)
+          VITE_MISSING=""
+          for v in VITE_CIAM_AUTHORITY VITE_CIAM_CLIENT_ID VITE_ADMIN_TENANT_ID VITE_ADMIN_CLIENT_ID VITE_ADMIN_SCOPE; do
+            if ! echo "$FE_SETTINGS" | grep -qx "$v"; then VITE_MISSING="$VITE_MISSING $v"; fi
+          done
+          if [ -z "$VITE_MISSING" ]; then \
+            item 8 "VITE_* de identidade no frontend (\`$FRONTEND_APP\`)" 0; \
+            else item 8 "VITE_* de identidade no frontend" 1 "ausente(s):${VITE_MISSING} — o instrutor deve semeá-las (runbook browser-harness Bloco 4)"; fi
 
           S ""
           if [ "$FAILED" -gt 0 ]; then
@@ -360,8 +377,18 @@ jobs:
           ADMIN_TID=$(get VITE_ADMIN_TENANT_ID)
           ADMIN_CID=$(get VITE_ADMIN_CLIENT_ID)
           ADMIN_SCOPE=$(get VITE_ADMIN_SCOPE)
-          if [ -z "$CIAM_CID" ] || [ -z "$CIAM_AUTH" ]; then
-            echo "::error::Identidade CIAM ausente nos App Settings do frontend ($FRONTEND_APP). O instrutor deve semeá-la no pré-provisionamento (runbook browser-harness — Story 4.5 Task 5). Ver AC-6/[AUTO-DECISION]."
+          # Fail-fast SIMÉTRICO: TODAS as VITE_* de identidade são obrigatórias para o app
+          # funcionar — tanto o login do cliente (CIAM) quanto o do admin (workforce). Semear
+          # só metade deixaria um dos dois logins morto no bundle. (Blocos `if` — nunca `&&` —
+          # para não disparar o `set -e` quando o teste for falso/variável presente.)
+          MISSING=""
+          if [ -z "$CIAM_AUTH" ];   then MISSING="$MISSING VITE_CIAM_AUTHORITY"; fi
+          if [ -z "$CIAM_CID" ];    then MISSING="$MISSING VITE_CIAM_CLIENT_ID"; fi
+          if [ -z "$ADMIN_TID" ];   then MISSING="$MISSING VITE_ADMIN_TENANT_ID"; fi
+          if [ -z "$ADMIN_CID" ];   then MISSING="$MISSING VITE_ADMIN_CLIENT_ID"; fi
+          if [ -z "$ADMIN_SCOPE" ]; then MISSING="$MISSING VITE_ADMIN_SCOPE"; fi
+          if [ -n "$MISSING" ]; then
+            echo "::error::Identidade ausente nos App Settings do frontend ($FRONTEND_APP):${MISSING}. O instrutor deve semear TODAS as VITE_* de identidade (CIAM + admin workforce) no pré-provisionamento (runbook browser-harness — Story 4.5 Task 5). Ver AC-6/[AUTO-DECISION]."
             exit 1
           fi
           {
@@ -404,6 +431,13 @@ jobs:
         if: ${{ inputs.acao == 'tudo' || inputs.acao == 'frontend' }}
         run: |
           set -euo pipefail
+          # DEPLOY via `az webapp deploy --type zip` — INTENCIONAL, NÃO um desvio do padrão dos labs
+          # anteriores. As Quartas usam `azure/webapps-deploy@v3` + `publish-profile` (secrets.
+          # AZURE_FRONTEND_PUBLISH_PROFILE); a entrega da Final ELIMINA os publish profiles no colapso
+          # 15→1 (AC-7 — único secret = AZURE_CREDENTIALS). `az webapp deploy` autentica pela sessão
+          # `az` (token AAD do Service Principal), então NÃO depende de SCM basic auth nem de publish
+          # profile, e é o sucessor recomendado do `config-zip` (deprecado). O bundle já foi buildado
+          # no step anterior (`npm run build` → dist/); aqui só zipa dist/ e publica.
           ( cd "${{ env.FRONTEND_WORKING_DIR }}/dist" && zip -qr ../dist.zip . )
           az webapp deploy --resource-group "$RG" --name "$FRONTEND_APP" \
             --src-path "${{ env.FRONTEND_WORKING_DIR }}/dist.zip" --type zip
