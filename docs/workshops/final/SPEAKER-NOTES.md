@@ -390,7 +390,7 @@
 > **▶ FLUXO DE ENTREGA (guia · fluxo 100% web, padrão Quartas) [~10 min].** Antes da retrospectiva, conduza o fork: "Agora sim o fork. Lembrem: **o Portal criou os recursos vazios; o Actions só publica código.**"
 > - **Fork NOVO, com TODAS as branches** — na tela de fork, **desmarque** *Copy the `main` branch only*. **Não reusem** o fork das Quartas: **Sync fork só atualiza a `main`, não traz branches novas.**
 > - **Habilitar o workflow:** abrir um **PR `lab-a-final` → `main` no próprio fork** e fazer o merge (é o "exercício" — faz o `lab-a-final.yml` aparecer no Actions). **Nunca** PR no repo da TFTEC.
-> - Rodar os `acao` na ordem: **`mcp-server` → `gateway` → `flow-events` → `frontend`** (ou **`tudo`**).
+> - Rodar os `acao` na ordem: **`function` → `mcp-server` → `gateway` → `flow-events` → `frontend`** (ou **`tudo`**).
 
 **Gancho:** "Está tudo no ar. Vamos amarrar o que vocês **provaram** — as **quatro** missões — e fechar."
 

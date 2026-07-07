@@ -13,7 +13,7 @@
 | 4 | **Guia do aluno (portal)** | [`../../runbooks/final-portal-guide.md`](../../runbooks/final-portal-guide.md) | Passo a passo completo — 14 fases (0–13): Gemini → cofre (Managed Identity + Key Vault) → F5/F6 → migração sem downtime dos recursos das Quartas → fork/PR/`acao`s → smokes → observabilidade; + Apêndices A–E (inclui SQL via MI, showcase) |
 | 5 | **Quiz** | [`QUIZ.md`](./QUIZ.md) | 8 perguntas-fonte para montar o Google Forms (link entra no guia via placeholder) |
 | 6 | **Diagrama de arquitetura** | [`../../diagrams/final-f5-f6-mcp-flow.drawio`](../../diagrams/final-f5-f6-mcp-flow.drawio) | Arquitetura pós-ADE-008 (5 nós, McpServer interno 7 tools read-only, zero n8n) — abrir no diagrams.net |
-| 7 | **Workflow do lab** | [`../../../.github/workflows/lab-a-final.yml`](../../../.github/workflows/lab-a-final.yml) | Workflow único: `acao = mcp-server \| gateway \| flow-events \| frontend \| tudo` |
+| 7 | **Workflow do lab** | [`../../../.github/workflows/lab-a-final.yml`](../../../.github/workflows/lab-a-final.yml) | Workflow único: `acao = function \| mcp-server \| gateway \| flow-events \| frontend \| tudo` |
 | 8 | Débito de segurança (referência) | [`../../security/final-security-debt.md`](../../security/final-security-debt.md) | Contexto do X-Gateway-Key/MI+KV citado nos slides e no guia |
 
 ## Status de qualidade (2026-07-02)

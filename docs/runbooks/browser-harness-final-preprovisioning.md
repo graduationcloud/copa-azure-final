@@ -58,6 +58,8 @@ Os nomes **concretos** que aparecem neste runbook (`kv-dev-tk-cin-001`, `id-fifa
 
 Assim **runbook e workflow contam a MESMA história de nomenclatura**: os nomes HML são o laboratório de validação do instrutor; a convenção `<prefixo>-<sufixo>` é o contrato de entrega da turma.
 
+> ⚠️ **O SQL `sql-<sufixo>` precisa do schema CIAM — a coluna `users.entra_oid` + o índice `UQ_users_entra_oid`** (aplicados pela migration `phase-04-ciam-link.sql` das Quartas), não só as tabelas base. É o que o `GET /api/v2/me` — o JIT CIAM do `MeFunction` ([Story 3.5](../stories/3.5.story.md)) que deixa o cliente **nato-CIAM** fechar a compra v2 — usa para resolver/vincular a linha em `users`. **Cenário greenfield** (aluno que chega à Final sem ter passado pelas Quartas, com um `sql-<sufixo>` novo): sem essa coluna, o `/api/v2/me` falha **em runtime** com **`Invalid column name 'entra_oid'`** (o código sobe pelo `acao=function`, mas a compra do nato-CIAM quebra). Garanta **antes da aula** por uma das vias: **(a)** clonar o DB do HML de validação (que já tem o schema completo), OU **(b)** aplicar `schema.sql` → `phase-01.sql` → `phase-03.sql` → `phase-04-ciam-link.sql` (em `fifa2026-api/database/`) nesse SQL — a mesma cadeia que os testes de integração da Story 4.3 aplicam.
+
 ---
 
 ## A LEI da ordem — o CAE é IMUTÁVEL (ADE-009 Invariante 3)

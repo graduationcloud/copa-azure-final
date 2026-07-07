@@ -6,7 +6,8 @@ name: Lab A Final — Chatbot MCP (F5) + Flow Visualizer (F6)
 #
 # Disparo MANUAL apenas (Actions → "Lab A Final" → Run workflow).
 # O input `acao` controla O QUE roda:
-#   - tudo        → mcp-server → gateway → flow-events → frontend (NESTA ORDEM — ver guia Bloco 3)
+#   - tudo        → function → mcp-server → gateway → flow-events → frontend (NESTA ORDEM — ver guia Fase 11)
+#   - function    → redeploy da Azure Function F1 (compra v2 async + GET /api/v2/me = MeFunction do JIT CIAM, Story 3.5); só CÓDIGO (preserva os App Settings/secrets herdados)
 #   - mcp-server  → build/test/deploy do McpServer (Container App INTERNO) + App Settings (SQL, Gemini, X-Gateway-Key)
 #   - gateway     → rebuild do Gateway YARP a partir desta branch (arma X-Gateway-Key no cluster mcp-server + lê FlowEventsUrl)
 #   - flow-events → build/test/deploy do FlowEvents (Container App externo/WebSocket) + SignalR + Log Analytics
@@ -17,6 +18,7 @@ name: Lab A Final — Chatbot MCP (F5) + Flow Visualizer (F6)
 # blocos (evita a pegadinha do skip quebrar downstream) — mesma estrutura das Oitavas/Quartas.
 #
 # ORIGEM DE CADA BLOCO (reuso, não invenção):
+#   function    ← lab-oitavas-de-final.yml (BLOCO 2 — FUNCTION); o código atual da F1 é superset do das Oitavas (ADICIONA o MeFunction, GET /api/v2/me; mantém Purchase*). Deploy SEM publish profile (via AZURE_CREDENTIALS)
 #   mcp-server  ← deploy-phase-05.yml (job deploy-mcp-server) + App Setting GATEWAY_SHARED_SECRET novo (X-Gateway-Key)
 #   gateway     ← deploy-phase-02.yml (build/test/deploy do Gateway YARP) + smoke fail-closed do lab-quartas-de-final.yml
 #   flow-events ← deploy-phase-06.yml (job deploy-flow-events)
@@ -38,6 +40,7 @@ name: Lab A Final — Chatbot MCP (F5) + Flow Visualizer (F6)
 #             GROQ_API_KEY (opc), MISTRAL_API_KEY (opc), GATEWAY_SHARED_SECRET,
 #             PHASE06_SIGNALR_CONNECTION_STRING, AZURE_FRONTEND_PUBLISH_PROFILE
 #   Vars (comuns):  ACR_LOGIN_SERVER, PHASE02_RESOURCE_GROUP
+#   Vars (function):FUNCTION_APP_NAME  (a mesma Function App das Oitavas/Quartas — o job só troca o CÓDIGO)
 #   Vars (mcp):     PHASE05_MCP_APP_NAME
 #   Vars (gateway): PHASE02_CONTAINERAPP_NAME
 #   Vars (flow):    PHASE06_FLOW_APP_NAME, PHASE06_LOG_ANALYTICS_WORKSPACE_ID, PHASE06_FRONTEND_ORIGIN
@@ -54,12 +57,16 @@ on:
         default: 'tudo'
         options:
           - tudo
+          - function
           - mcp-server
           - flow-events
           - gateway
           - frontend
       resource_group:
         description: '(opcional) Resource group override'
+        required: false
+      function_app_name:
+        description: '(opcional) Azure Function App (F1) name override'
         required: false
       mcp_app_name:
         description: '(opcional) McpServer Container App name override'
@@ -78,6 +85,9 @@ env:
   DOTNET_VERSION: '8.0.x'
   NODE_VERSION: '20'
   DEFAULT_RESOURCE_GROUP: 'rg-hml-tik-cin-001'
+  # --- function (F1) ---
+  FUNCTION_PROJECT_PATH: 'src/Fifa2026.V2.Functions'
+  FUNCTION_TEST_PATH: 'src/Fifa2026.V2.Functions.Tests'
   # --- mcp-server ---
   MCP_PROJECT_PATH: 'src/Fifa2026.V2.McpServer'
   MCP_TEST_PATH: 'src/Fifa2026.V2.McpServer.Tests'
@@ -102,7 +112,107 @@ jobs:
         uses: actions/checkout@v4
 
       # =========================================================
-      # BLOCO 1 — MCP-SERVER  (acao = tudo | mcp-server)
+      # BLOCO 1 — FUNCTION (F1)  (acao = tudo | function)
+      #   Redeploy da Azure Function F1 (a fundação v2: compra async + GET /api/v2/me = o
+      #   MeFunction do JIT CIAM, Story 3.5). A App JÁ existe (Oitavas/Quartas) — aqui só
+      #   republicamos o CÓDIGO ATUAL, que é superset do das Oitavas (ADICIONA o MeFunction;
+      #   mantém Purchase*). Sem isto, o frontend/gateway da Final chamam /api/v2/me numa F1
+      #   com deploy velho → 404 → quebra a compra do cliente nato-CIAM (a feature-estrela).
+      #   RETRO-COMPAT (regra dura): o bloco faz APENAS build+test+publish+deploy de CÓDIGO +
+      #   smoke, e NÃO roda nenhum `az appsettings set`/secret. Os settings/secrets HERDADOS —
+      #   ServiceBusConnection/SqlConnectionString/AzureWebJobsStorage/GATEWAY_SHARED_SECRET (Oitavas
+      #   + Fase 9/KV) e as Key Vault references — são preservados pelo zip-deploy. (O functions-
+      #   action pode gerenciar só o WEBSITE_RUN_FROM_PACKAGE, o setting de MODO de deploy; a config
+      #   herdada e a retro-compat das Oitavas/Quartas seguem intactas.)
+      #   Origem: lab-oitavas-de-final.yml (BLOCO 2 — FUNCTION), sem publish profile (AZURE_CREDENTIALS).
+      # =========================================================
+      - name: '[function] Setup .NET'
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: '[function] Restore'
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        run: dotnet restore ${{ env.FUNCTION_PROJECT_PATH }}
+
+      - name: '[function] Build'
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        run: dotnet build ${{ env.FUNCTION_PROJECT_PATH }} -c Release --no-restore
+
+      - name: '[function] Test'
+        # SEM --no-build (lição do gate S2.1 / H-1): o dotnet test faz restore+build do
+        # projeto de testes E da dependência Fifa2026.V2.Functions em Release.
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        run: dotnet test ${{ env.FUNCTION_TEST_PATH }} -c Release --verbosity normal
+
+      - name: '[function] Publish'
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        run: dotnet publish ${{ env.FUNCTION_PROJECT_PATH }} -c Release -o ./publish-f1 --no-build
+
+      - name: '[function] Azure login (Service Principal)'
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: '[function] Deploy to Azure Functions (via AZURE_CREDENTIALS — sem publish profile)'
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        uses: Azure/functions-action@v1
+        with:
+          # Precedência: input manual → GitHub Variable. SEM publish-profile: o deploy autentica
+          # pela sessão az (azure/login acima, RBAC do SP) — não exige um secret novo no fork.
+          # functions-action faz zip-deploy do CÓDIGO e preserva as App Settings herdadas (pode
+          # gerenciar apenas o WEBSITE_RUN_FROM_PACKAGE, o setting de MODO de deploy).
+          app-name: ${{ inputs.function_app_name || vars.FUNCTION_APP_NAME }}
+          package: ./publish-f1
+
+      - name: '[function] Smoke — GET /api/v2/me responde (prova o MeFunction, sem poluir o banco)'
+        # NÃO copiamos o smoke das Oitavas (POST /api/v2/purchase cria uma compra REAL). Um GET
+        # DIRETO em /api/v2/me (sem Bearer, sem X-Gateway-Key) é limpo e não toca o banco:
+        #   - rota EXISTE (MeFunction deployado) → 401 (GATEWAY_SHARED_SECRET armado ⇒
+        #     GatewayKeyValidationMiddleware fail-closed; OU vazio ⇒ MeFunction sem X-Entra-OID) —
+        #     é o estado ESPERADO e prova DEFINITIVA do deploy. 403/2xx também = rota presente.
+        #   - rota AUSENTE (deploy velho) → 404; App Service acordando → 5xx; sem conexão → 000.
+        # Política de retry (fecha 2 furos): re-tenta enquanto o código for TRANSITÓRIO — 000
+        # (conexão), 404 (rota ainda reindexando logo após o zip-deploy do functions-action) e 5xx
+        # (warming) — e só declara PASS em 401/403/2xx. Assim um 404 transitório pós-deploy não
+        # falha o job à toa, e um 5xx de warming não passa falsamente como "≠404".
+        if: ${{ inputs.acao == 'tudo' || inputs.acao == 'function' }}
+        env:
+          APP_NAME: ${{ inputs.function_app_name || vars.FUNCTION_APP_NAME }}
+        run: |
+          set -euo pipefail
+          echo "Sondando GET /api/v2/me (prova de deploy do MeFunction; sem token, sem compra)..."
+          CODE="000"
+          PASS=""
+          for i in $(seq 1 6); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              "https://${APP_NAME}.azurewebsites.net/api/v2/me" || echo "000")
+            echo "tentativa $i/6: GET /api/v2/me → HTTP $CODE"
+            case "$CODE" in
+              2??|401|403)
+                # Estado ESPERADO: a rota existe (401 do middleware fail-closed / MeFunction sem
+                # X-Entra-OID, ou 403/2xx). Prova definitiva do deploy → PASS, sai do loop.
+                PASS=1; break ;;
+              000|404|5??)
+                # TRANSITÓRIO: 000 = cold start sem conexão; 404 = rota ainda reindexando pós zip-
+                # deploy; 5xx = App Service warming. Re-tenta dentro do orçamento (~6 x 10s).
+                sleep 10 ;;
+              *)
+                # Estável e inesperado (ex.: 400/405) — nem transitório nem o esperado; não
+                # adianta re-tentar. Sai e deixa a decisão final falhar citando o código.
+                break ;;
+            esac
+          done
+          if [ -z "$PASS" ]; then
+            echo "::error::/api/v2/me terminou em HTTP ${CODE} (esperado 401/403/2xx). 404/5xx/000 persistente ⇒ o MeFunction provavelmente NÃO está no deploy da F1 (código velho) — a compra do cliente nato-CIAM quebraria (Story 3.5). Verifique o deploy da Function."
+            exit 1
+          fi
+          echo "Smoke OK — /api/v2/me respondeu HTTP ${CODE} (rota presente): o MeFunction está deployado (a compra nato-CIAM tem rota)."
+
+      # =========================================================
+      # BLOCO 2 — MCP-SERVER  (acao = tudo | mcp-server)
       #   McpServer .NET (7 tools read-only, SDK ModelContextProtocol — ADE-002 Inv 1) +
       #   proxy LLM server-side. Imagem no ACR + App Settings sensíveis como secrets do
       #   Container App: SQL, GEMINI/GROQ/MISTRAL (proxy) e GATEWAY_SHARED_SECRET (X-Gateway-Key).
@@ -255,7 +365,7 @@ jobs:
           echo "Smoke OK — McpServer (interno) com revisão Provisioned + Running."
 
       # =========================================================
-      # BLOCO 2 — GATEWAY YARP  (acao = tudo | gateway)
+      # BLOCO 3 — GATEWAY YARP  (acao = tudo | gateway)
       #   Rebuild do Gateway a partir desta branch (lab-a-final) para armar o hardening:
       #   X-Gateway-Key também no cluster mcp-server (ADE-009) + leitura de FlowEventsUrl.
       #   As App Settings (McpServerUrl / FlowEventsUrl / Gateway__AdminSharedSecret) são
@@ -338,7 +448,7 @@ jobs:
           echo "Smoke test OK — 401 sem token + /health 200."
 
       # =========================================================
-      # BLOCO 3 — FLOW-EVENTS  (acao = tudo | flow-events)
+      # BLOCO 4 — FLOW-EVENTS  (acao = tudo | flow-events)
       #   FlowEvents .NET (Azure.Monitor.Query via Kusto + Microsoft.Azure.SignalR — FlowHub).
       #   Imagem no ACR + App Settings: AzureSignalRConnectionString (secretref),
       #   LogAnalyticsWorkspaceId, FrontendOrigin. Ingress EXTERNO/WebSocket → smoke /health público.
@@ -447,7 +557,7 @@ jobs:
           echo "Smoke test OK — FlowEvents healthy."
 
       # =========================================================
-      # BLOCO 4 — FRONTEND  (acao = tudo | frontend)
+      # BLOCO 5 — FRONTEND  (acao = tudo | frontend)
       #   Build ÚNICO do frontend (Vite) com o chatbot (F5) E a rota /flow (F6) embutidos.
       #   VITE_* do gateway/proxy/provider/model (chatbot) + VITE_FLOW_EVENTS_BASE_URL (/flow).
       #   Guard: nenhuma API key de LLM pode vazar no bundle (a key fica só no proxy server-side).

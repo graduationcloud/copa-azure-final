@@ -37,6 +37,7 @@ O que muda em relação às Quartas:
 | Gateway YARP | você criou | **reusado** (rebuild do código p/ o hardening + segredo migrado p/ o cofre) |
 | Identidade CIAM + admin | você criou | reusada |
 | Backend v1 / SQL | reusado | reusado (segredo do gateway migrado p/ o cofre; SQL-MI é showcase opcional) |
+| **Functions F1** (compra v2 async + `/api/v2/me`) | reusada (das Oitavas) | **reusada — código redeployado** (`acao=function`) p/ trazer o `MeFunction` (JIT CIAM base v1↔CIAM) |
 | **Key Vault** `kv-dev-tk-cin-001` | já existe | **reusado** — passa a guardar as chaves em claro |
 | **McpServer** (7 tools read-only) | — | **NOVO** — Container App **interno**, atrás do gateway |
 | **Chatbot Gemini** | — | **NOVO** — no frontend, chave no **proxy server-side** |
@@ -66,7 +67,7 @@ Reuse os recursos das Quartas e crie os **novos** da Final. Anote os **seus** va
 | FQDN do gateway | `<gateway-fqdn>` (das Quartas) | ____________ |
 | Frontend Web App | `<seu-frontend>` → `https://<seu-frontend>.azurewebsites.net` (reuse) | ____________ |
 | Backend v1 (Web App) | `<seu-backend>` (reuse das Quartas) | ____________ |
-| Functions F1 (Function App) | `<suas-functions>` (reuse) | ____________ |
+| Functions F1 (Function App) | `<suas-functions>` (reuse — a App é a mesma; o **código é redeployado** na Final via `acao=function`, trazendo o `GET /api/v2/me`) | ____________ |
 | SQL Server / DB | `<seu-sql-server>` / `FIFA2026Tickets` (reuse) | ____________ |
 | **Key Vault** | `kv-dev-tk-cin-001` **[já existe]** — RBAC habilitado `[confirmar no Portal]` | ____________ |
 | **Managed Identity (leitura do KV)** | `id-fifa2026-kv-reader` — **NOVO, User-Assigned** `[nome sugerido; confirme]` | ____________ |
@@ -461,6 +462,8 @@ O que sai do claro por subfase (o shared secret é o que **valida** o `X-Gateway
 
 A **Function F1** (herdada das Oitavas) ainda guarda em claro **dois** segredos: `SqlConnectionString` (com a senha) e `ServiceBusConnection` (uma SAS key). Feche os dois **in-place**, com a **mesma** forma da 9.1 — a system-assigned desta Function **já está ligada e com a role** (passo 9.1), então **sem novo grant**: só troca o **valor** de cada App Setting, um por vez, por uma Key Vault reference (valor byte-idêntico ao atual).
 
+> 🔁 **A App é reusada, mas o *código* da F1 é redeployado na Final.** Esta fase migra os **segredos** da Function para o cofre; o **código** — que na Final passa a incluir o `MeFunction` (`GET /api/v2/me`, o JIT CIAM base v1↔CIAM da [Story 3.5](../stories/3.5.story.md), sem o qual o cliente **nato-CIAM** não fecha a compra v2) — é (re)publicado depois, no [`acao=function`](#fase-11--pr-do-lab--rodar-os-acao-na-ordem) da Fase 11 (é o **1º** bloco de deploy). Deploy de **código preserva** estas App Settings (inclusive as Key Vault references que você acabou de configurar) — retro-compat das Oitavas intacta.
+
 | App Setting da Function | Trocar o valor para | Origem no cofre (Fase 1.4) |
 |---|---|---|
 | `SqlConnectionString` | `@Microsoft.KeyVault(SecretUri=https://kv-dev-tk-cin-001.vault.azure.net/secrets/sql-connection-string/)` | `sql-connection-string` (ADO.NET) |
@@ -578,20 +581,22 @@ A branch do lab no repositório do evento (org **TFTEC**) chama-se **`lab-a-fina
 
 ### 11.2 Rodar o workflow — nesta ordem
 
-Sempre em **Actions → "Lab A Final" → Run workflow → branch `main`** (já com o workflow após o merge da 11.1), variando o `acao`. A ordem (a mesma do `tudo`) é **`mcp-server` → `gateway` → `flow-events` → `frontend`**:
+Sempre em **Actions → "Lab A Final" → Run workflow → branch `main`** (já com o workflow após o merge da 11.1), variando o `acao`. A ordem (a mesma do `tudo`) é **`function` → `mcp-server` → `gateway` → `flow-events` → `frontend`**:
 
-1. **`acao = mcp-server`** — `dotnet build/test` do McpServer, build & push da imagem no ACR (`cr<sufixo>.azurecr.io/mcp-server:<sha>`), `az containerapp update --image` (troca o placeholder) e — se você optou pelo caminho **inline** — aplica os App Settings sensíveis como secrets. Se você **blindou pelo cofre** (Fase 3), deixe `PHASE05_SQL_CONNECTION_STRING` vazio e confirme que os secrets `sql-conn`/`gemini-key`/`gateway-secret` continuam **Key Vault reference** — agora **garantido pelo workflow**: com o secret do seu repo vazio, o deploy detecta o `sql-conn` existente e **não sobrescreve** a blindagem.
+1. **`acao = function`** — `dotnet build/test` da Function F1 + `dotnet publish` + deploy do **código** na Function App existente (via `AZURE_CREDENTIALS`, **sem** publish profile). Traz o `MeFunction` (`GET /api/v2/me`) — o JIT CIAM que deixa o cliente **nato-CIAM** fechar a compra v2. **Só código:** nenhuma App Setting/secret é tocada (as do cofre da [Fase 9](#fase-9--migração-sem-downtime-backend--functions-das-quartas--key-vault) permanecem — retro-compat das Oitavas intacta).
+   > **O que esperar no log:** step **"[function] Smoke"** → `GET /api/v2/me` (sem token) = **HTTP ≠ 404** (idealmente **401**: a rota existe e a trava `X-Gateway-Key`/identidade barra). Um **404** falha o job de propósito (deploy velho, sem o `MeFunction`). Sem compra, sem poluir o banco.
+2. **`acao = mcp-server`** — `dotnet build/test` do McpServer, build & push da imagem no ACR (`cr<sufixo>.azurecr.io/mcp-server:<sha>`), `az containerapp update --image` (troca o placeholder) e — se você optou pelo caminho **inline** — aplica os App Settings sensíveis como secrets. Se você **blindou pelo cofre** (Fase 3), deixe `PHASE05_SQL_CONNECTION_STRING` vazio e confirme que os secrets `sql-conn`/`gemini-key`/`gateway-secret` continuam **Key Vault reference** — agora **garantido pelo workflow**: com o secret do seu repo vazio, o deploy detecta o `sql-conn` existente e **não sobrescreve** a blindagem.
    > **O que esperar no log:** como o ingress do McpServer é **interno** (sem endereço público), o workflow **não** faz `curl /health` — ele confirma via `az` que a revisão ativa provisionou. O smoke funcional (`tools/list` = 7 via gateway) é o passo manual da [Fase 12](#fase-12--smokes-e-validação-o-coração-do-lab).
-2. **`acao = gateway`** — **rebuild do gateway** a partir de `lab-a-final` para pegar o hardening (`X-Gateway-Key` no cluster `mcp-server` + leitura de `FlowEventsUrl`). Troca a imagem; suas App Settings (incluindo a Key Vault reference da Fase 4) permanecem.
+3. **`acao = gateway`** — **rebuild do gateway** a partir de `lab-a-final` para pegar o hardening (`X-Gateway-Key` no cluster `mcp-server` + leitura de `FlowEventsUrl`). Troca a imagem; suas App Settings (incluindo a Key Vault reference da Fase 4) permanecem.
    > **O que esperar no log:** step **"[gateway] Smoke test"** → `POST /purchase` sem token = **401** (fail-closed) + `GET /health` = **200**.
-3. **`acao = flow-events`** — `dotnet build/test` do FlowEvents, build & push da imagem (`cr<sufixo>.azurecr.io/flow-events:<sha>`), `az containerapp update --image` + aplica `AzureSignalRConnectionString`, `LogAnalyticsWorkspaceId`, `FrontendOrigin`. Se você **blindou pelo cofre** (Fase 7), deixe `PHASE06_SIGNALR_CONNECTION_STRING` vazio: o deploy detecta o secret `azure-signalr-conn` existente e **não sobrescreve** a Key Vault reference (o env var `AzureSignalRConnectionString` continua apontando pra ela).
+4. **`acao = flow-events`** — `dotnet build/test` do FlowEvents, build & push da imagem (`cr<sufixo>.azurecr.io/flow-events:<sha>`), `az containerapp update --image` + aplica `AzureSignalRConnectionString`, `LogAnalyticsWorkspaceId`, `FrontendOrigin`. Se você **blindou pelo cofre** (Fase 7), deixe `PHASE06_SIGNALR_CONNECTION_STRING` vazio: o deploy detecta o secret `azure-signalr-conn` existente e **não sobrescreve** a Key Vault reference (o env var `AzureSignalRConnectionString` continua apontando pra ela).
    > **O que esperar no log:** step **"[flow-events] Smoke test"** → `GET /health` com `.status == "healthy"` (ingress externo, então há `curl` público).
-4. **`acao = frontend`** — `npm ci` + `npm run lint` + `vite build` (chatbot **e** rota `/flow` embutidos, com todas as `VITE_*`) + deploy no Web App.
+5. **`acao = frontend`** — `npm ci` + `npm run lint` + `vite build` (chatbot **e** rota `/flow` embutidos, com todas as `VITE_*`) + deploy no Web App.
    > **O que esperar no log:** step **"[frontend] Guard"** → `Guard OK — nenhuma key de LLM no bundle`. Se alguma key de LLM aparecer no bundle, o job **falha** de propósito (a key deve ficar só no proxy server-side).
 
-> 🧩 **Origem dos blocos (reuso, não invenção):** `mcp-server` ← `deploy-phase-05.yml`; `gateway` ← `deploy-phase-02.yml` (é onde vive o deploy do Gateway YARP) + smoke fail-closed do `lab-quartas-de-final.yml`; `flow-events` ← `deploy-phase-06.yml`; `frontend` ← fusão dos jobs de front do phase-05 (chatbot + guard) e phase-06 (rota `/flow`); seletor `acao` ← `lab-quartas-de-final.yml`.
+> 🧩 **Origem dos blocos (reuso, não invenção):** `function` ← `lab-oitavas-de-final.yml` (BLOCO 2 — FUNCTION), agora com o `MeFunction` já no código atual; `mcp-server` ← `deploy-phase-05.yml`; `gateway` ← `deploy-phase-02.yml` (é onde vive o deploy do Gateway YARP) + smoke fail-closed do `lab-quartas-de-final.yml`; `flow-events` ← `deploy-phase-06.yml`; `frontend` ← fusão dos jobs de front do phase-05 (chatbot + guard) e phase-06 (rota `/flow`); seletor `acao` ← `lab-quartas-de-final.yml`.
 
-✅ **Checkpoint:** quatro jobs verdes na ordem `mcp-server → gateway → flow-events → frontend` (ou um `tudo`); revisões ativas apontando para as imagens `:<sha>`; frontend publicado com chatbot + `/flow`.
+✅ **Checkpoint:** cinco jobs verdes na ordem `function → mcp-server → gateway → flow-events → frontend` (ou um `tudo`); a F1 respondendo `/api/v2/me` (**≠ 404**); revisões ativas apontando para as imagens `:<sha>`; frontend publicado com chatbot + `/flow`.
 
 ---
 
